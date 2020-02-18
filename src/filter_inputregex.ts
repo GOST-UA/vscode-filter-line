@@ -21,29 +21,22 @@ class FilterLineByInputRegex extends FilterLineBase {
     protected async prepare(callback: (succeed: boolean) => void) {
         const usrChoice: string = await this.showHistoryPick(this.HIST_KEY);
 
-        const makeRegEx = async (text: string | undefined) => {
-            if (text === undefined || text === '') {
-                // console.log('No input');
-                callback(false);
-                return;
-            }
-            // console.log('input : ' + text);
-            try {
-                this._regex = new RegExp(text);
-            } catch (e) {
-                this.showError('Regex incorrect :' + e);
-                callback(false);
-                return;
-            }
-            await this.addToHistory(this.HIST_KEY, text);
-            callback(true);
-        };
-
-        if (usrChoice !== this.NEW_PATTERN_CHOICE) {
-            makeRegEx(usrChoice);
-        } else {
-            vscode.window.showInputBox().then(makeRegEx);
+        if (usrChoice === '') {
+            this.logger.appendLine('User input is an empty');
+            callback(false);
+            return;
         }
+
+        try {
+            this._regex = new RegExp(usrChoice);
+        } catch (e) {
+            this.logger.appendLine('Regex is incorrect: ' + e);
+            this.showError('Regex incorrect :' + e);
+            callback(false);
+            return;
+        }
+        await this.addToHistory(this.HIST_KEY, usrChoice);
+        callback(true);
     }
 
     protected matchLine(line: string): string | undefined {

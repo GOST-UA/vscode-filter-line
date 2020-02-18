@@ -1,7 +1,9 @@
 'use strict';
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
-import * as vscode from 'vscode';
+// import * as vscode from 'vscode';
+import {Uri, window, QuickPickItem, OutputChannel, TextDocument, workspace, Position} from 'vscode';
+import {ExtensionContext, commands} from 'vscode';
 import fs = require('fs');
 import path = require('path');
 import os = require('os');
@@ -12,15 +14,26 @@ const pipeline = promisify(stream.pipeline);
 import { FilterStream, TextDocumentReadStream, statAsync, moveAsync, unlinkAsync } from './util';
 
 
+class FilterItem implements QuickPickItem {
+    label: string;
+    description = '';
+    detail: string;
+
+    constructor(public pattern: string) {
+        this.label = pattern;
+        this.detail = '';
+    }
+}
+
 class Filter {
     protected readonly TAIL = 'filterline';
 
-    constructor(protected fromUri: vscode.Uri,
+    constructor(protected fromUri: Uri,
                 protected filterCallback: (line: string) => string | boolean | undefined,
-                protected logger: vscode.OutputChannel) {
+                protected logger: OutputChannel) {
     }
 
-    public async process(): Promise<vscode.Uri> {
+    public async process(): Promise<Uri> {
         let ext = path.extname(this.fromUri.path);
         const timestamp = new Date().getTime().toString();
         let outBase = '';
@@ -40,7 +53,7 @@ class Filter {
             fs.createWriteStream(outPath)
         );
 
-        return vscode.Uri.parse(`file:${outPath}`);
+        return Uri.parse(`file:${outPath}`);
     }
 
     protected createInputStream(): stream.Readable {
@@ -63,18 +76,18 @@ class Filter {
         }
     }
 
-    protected findOpenedDoc(): vscode.TextDocument | undefined {
-        return vscode.workspace.textDocuments.find(el => el.uri.path === this.fromUri.path);
+    protected findOpenedDoc(): TextDocument | undefined {
+        return workspace.textDocuments.find(el => el.uri.path === this.fromUri.path);
     }
 }
 
 class FilterLineBase {
-    protected ctx: vscode.ExtensionContext;
+    protected ctx: ExtensionContext;
     private history: any;
     protected readonly NEW_PATTERN_CHOICE = 'New pattern...';
     protected readonly LARGE_MODE_THR = (30 * 1024 * 1024);
 
-    constructor(context: vscode.ExtensionContext, protected logger: vscode.OutputChannel) {
+    constructor(context: ExtensionContext, protected logger: OutputChannel) {
         this.ctx = context;
         this.history = this.ctx.globalState.get('history', {});
 
@@ -91,7 +104,7 @@ class FilterLineBase {
     }
 
     protected getHistoryMaxSize(): number {
-        return vscode.workspace.getConfiguration('filter-line').get('historySize', 10);
+        return workspace.getConfiguration('filter-line').get('historySize', 10);
     }
 
     protected async addToHistory(key: string, newEl: string) {
@@ -100,55 +113,67 @@ class FilterLineBase {
             return;
         }
 
-        if (this.history[key].indexOf(newEl) === -1) {
-            const maxSz = this.getHistoryMaxSize();
-            if (this.history[key].length >= maxSz) {
-                for (let i = this.history[key].length; i > maxSz - 1; i--) {
-                    this.history[key].pop();
-                }
-            }
+        const maxSz = this.getHistoryMaxSize();
+        if (this.history[key].length >= maxSz) {
+            this.history[key].splice(maxSz);
+        }
+
+        const idx = this.history[key].indexOf(newEl);
+
+        if (idx === -1) {
             this.history[key].unshift(newEl);
             await this.ctx.globalState.update('history', this.history);
+        } else {
+            this.history[key].splice(idx, 1);
+            this.history[key].unshift(newEl);
         }
     }
 
     protected async showHistoryPick(key: string): Promise<string> {
-        if (this.history[key] === undefined) {
-            this.logger.appendLine(`History doesn't contain '${key}' field`);
-            return this.NEW_PATTERN_CHOICE;
-        }
+        return new Promise((resolve) => {
+            const histPick = window.createQuickPick<FilterItem>();
+            histPick.placeholder = 'Select (or type) filter pattern';
+            histPick.canSelectMany = false;
+            histPick.items = ['', ...this.history[key]].map((patt: string) => new FilterItem(patt));
 
-        let usrChoice: string | undefined = undefined;
-        if (this.history[key].length) {
-            const picks: Array<string> = [...this.history[key]];
-            picks.push(this.NEW_PATTERN_CHOICE);
-            usrChoice = await vscode.window.showQuickPick(picks);
-        }
-        return (usrChoice === undefined) ? this.NEW_PATTERN_CHOICE : usrChoice;
+            histPick.onDidAccept(() => {
+                resolve(histPick.activeItems[0].pattern);
+                histPick.hide();
+            });
+
+            histPick.onDidChangeValue(() => {
+                if (this.history[key].indexOf(histPick.value) === -1) {
+                    histPick.items = [histPick.value, ...this.history[key]].map((patt: string) => new FilterItem(patt));
+                }
+            });
+
+            histPick.onDidHide(() => histPick.dispose());
+            histPick.show();
+        });
     }
 
     protected getSaveAfterFilteringFlag(): boolean {
-        return vscode.workspace.getConfiguration('filter-line').get('saveAfterFiltering', false);
+        return workspace.getConfiguration('filter-line').get('saveAfterFiltering', false);
     }
 
     protected showInfo(text: string) {
         this.logger.appendLine(text);
-        vscode.window.showInformationMessage(text);
+        window.showInformationMessage(text);
     }
     protected showError(text: string) {
         this.logger.appendLine(text);
-        vscode.window.showErrorMessage(text);
+        window.showErrorMessage(text);
     }
 
     protected showWarning(text: string) {
         this.logger.appendLine(text);
-        vscode.window.showWarningMessage(text);
+        window.showWarningMessage(text);
     }
 
-    protected getSourceUri(fileUri?: vscode.Uri): vscode.Uri | undefined {
+    protected getSourceUri(fileUri?: Uri): Uri | undefined {
         if (fileUri === undefined) {
             // Filtering was launched from command line
-            const editor = vscode.window.activeTextEditor;
+            const editor = window.activeTextEditor;
             if (!editor) {
                 this.showError("No file selected or file is too large. For large files, use file's context menu. For more information please visit README");
                 return undefined;
@@ -160,7 +185,7 @@ class FilterLineBase {
         }
     }
 
-    protected async filter_(uri: vscode.Uri) {
+    protected async filter_(uri: Uri) {
         const tmpPath = await (new Filter(uri, (line) => this.matchLine(line), this.logger)).process();
 
         const fInfo = await statAsync(tmpPath.fsPath);
@@ -176,7 +201,7 @@ class FilterLineBase {
                 this.showWarning("Don't know where to save file. Saved into temporary folder");
             } else {
                 const dstBase = tmpPath.fsPath.split(path.sep).slice(-1)[0];
-                dstPath = vscode.Uri.parse(uri.fsPath.split(path.sep).slice(0, -1).join(path.sep) + path.sep + dstBase);
+                dstPath = Uri.parse(uri.fsPath.split(path.sep).slice(0, -1).join(path.sep) + path.sep + dstBase);
                 try {
                     await moveAsync(tmpPath.fsPath, dstPath.fsPath);
                 } catch (error) {
@@ -188,8 +213,8 @@ class FilterLineBase {
             if (largeModeFlag) {
                 this.showWarning('Filtered content is larger then Visual Studio Code limitations. Saved into temporary folder');
             } else {
-                await vscode.commands.executeCommand('workbench.action.files.newUntitledFile');
-                const editor = vscode.window.activeTextEditor;
+                await commands.executeCommand('workbench.action.files.newUntitledFile');
+                const editor = window.activeTextEditor;
 
                 if (editor === undefined) {
                     throw Error('Text Editor does not open');
@@ -201,7 +226,7 @@ class FilterLineBase {
 
                 try {
                     for await (const chunk of readStream) {
-                        const pos = doc.validatePosition(new vscode.Position(doc.lineCount, 0));
+                        const pos = doc.validatePosition(new Position(doc.lineCount, 0));
                         await editor.edit(async edit => {
                             edit.insert(pos, chunk);
                         });
@@ -218,8 +243,8 @@ class FilterLineBase {
         }
 
         if (!processed) {
-            const doc = await vscode.workspace.openTextDocument(dstPath);
-            await vscode.window.showTextDocument(doc);
+            const doc = await workspace.openTextDocument(dstPath);
+            await window.showTextDocument(doc);
         }
 
         this.showInfo('Filtering completed :)');
@@ -233,7 +258,7 @@ class FilterLineBase {
         callback(true);
     }
 
-    public filter(filePath?: vscode.Uri) {
+    public filter(filePath?: Uri) {
         const srcUri =this.getSourceUri(filePath);
 
         if (srcUri === undefined) {

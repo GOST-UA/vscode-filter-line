@@ -21,24 +21,17 @@ class FilterLineByInputString extends FilterLineBase {
     protected async prepare(callback: (succeed: boolean) => void) {
         const usrChoice: string = await this.showHistoryPick(this.HIST_KEY);
 
-        const makeInputStr = (text: string | undefined) => {
-            if (text === undefined || text === '') {
-                console.log('No input');
-                callback(false);
-                return;
-            }
-            console.log('input : ' + text);
-            this.addToHistory(this.HIST_KEY, text);
-
-            this._inputstring = text;
-            callback(true);
-        };
-
-        if (usrChoice !== this.NEW_PATTERN_CHOICE) {
-            makeInputStr(usrChoice);
-        } else {
-            vscode.window.showInputBox().then(makeInputStr);
+        if (usrChoice === '') {
+            this.logger.appendLine('User input is an empty');
+            callback(false);
+            return;
         }
+
+        this.logger.appendLine('User input: ' + usrChoice);
+        this.addToHistory(this.HIST_KEY, usrChoice);
+
+        this._inputstring = usrChoice;
+        callback(true);
     }
 
     protected matchLine(line: string): string | undefined {
