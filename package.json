@@ -6,7 +6,7 @@
     "publisher": "everettjf",
     "license": "MIT",
     "engines": {
-        "vscode": "^1.24.0"
+        "vscode": "^1.31.0"
     },
     "categories": [
         "Formatters",
@@ -94,12 +94,12 @@
     "devDependencies": {
         "@types/mocha": "^2.2.42",
         "@types/node": "^13.6.0",
+        "@types/vscode": "1.31.0",
         "@typescript-eslint/eslint-plugin": "^2.18.0",
         "@typescript-eslint/parser": "^2.18.0",
         "eslint": "^6.8.0",
         "tslint": "^5.12.1",
-        "typescript": "^3.7.2",
-        "vscode": "^1.1.36"
+        "typescript": "^3.7.2"
     },
     "icon": "images/icon.png",
     "bugs": {
